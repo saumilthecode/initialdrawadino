@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dino Drawing App</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #f0f0f0;
+        }
+
+        canvas {
+            background: white;
+            border: 2px solid #333;
+            border-radius: 8px;
+            touch-action: none;
+        }
+
+        #drawingPage, #displayPage {
+            text-align: center;
+        }
+
+        .button {
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px;
+        }
+
+        #displayContainer {
+            position: relative;
+            width: 100%;
+            height: 80vh;
+            perspective: 1000px;
+        }
+
+        .drawing {
+            position: absolute;
+            width: 300px;
+            height: 300px;
+            transition: all 0.5s ease;
+        }
+    </style>
+</head>
+<body>
+    <div id="drawingPage">
+        <h1>Draw Your Dinosaur!</h1>
+        <canvas id="drawingCanvas" width="300" height="300"></canvas>
+        <br>
+        <button class="button" onclick="clearCanvas()">Clear</button>
+        <button class="button" onclick="submitDrawing()">Submit</button>
+    </div>
+
+    <div id="displayPage" style="display: none;">
+        <h1>Dinosaur Gallery</h1>
+        <div id="displayContainer"></div>
+    </div>
+
+    <script>
+        const BUCKET_URL = 'http://dino-drawing-display.s3-website-ap-southeast-1.amazonaws.com/';
+
+        // Drawing functionality
+        const canvas = document.getElementById('drawingCanvas');
+        const ctx = canvas.getContext('2d');
+        let isDrawing = false;
+        let lastX = 0;
+        let lastY = 0;
+
+        ctx.strokeStyle = '#000';
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.lineWidth = 2;
+
+        // Drawing event listeners
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mouseout', stopDrawing);
+
+        canvas.addEventListener('touchstart', handleTouch);
+        canvas.addEventListener('touchmove', handleTouch);
+        canvas.addEventListener('touchend', stopDrawing);
+
+        function handleTouch(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            const mouseEvent = new MouseEvent(e.type === 'touchstart' ? 'mousedown' : 'mousemove', {
+                clientX: touch.clientX - rect.left,
+                clientY: touch.clientY - rect.top
+            });
+            canvas.dispatchEvent(mouseEvent);
+        }
+
+        function startDrawing(e) {
+            isDrawing = true;
+            [lastX, lastY] = [e.offsetX, e.offsetY];
+        }
+
+        function draw(e) {
+            if (!isDrawing) return;
+            ctx.beginPath();
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(e.offsetX, e.offsetY);
+            ctx.stroke();
+            [lastX, lastY] = [e.offsetX, e.offsetY];
+        }
+
+        function stopDrawing() {
+            isDrawing = false;
+        }
+
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        async function submitDrawing() {
+            const fileName = `dino_${Date.now()}.png`;
+            const imageBlob = await new Promise(resolve => canvas.toBlob(resolve));
+
+            try {
+                await fetch(`${BUCKET_URL}/${fileName}`, {
+                    method: 'PUT',
+                    body: imageBlob,
+                    headers: {
+                        'Content-Type': 'image/png'
+                    }
+                });
+                alert('Drawing submitted successfully!');
+                clearCanvas();
+            } catch (error) {
+                console.error('Error uploading:', error);
+                alert('Failed to upload drawing');
+            }
+        }
+
+        // Display page functionality
+        let drawings = [];
+        let angle = 0;
+
+        async function loadDrawings() {
+            try {
+                const response = await fetch(`${BUCKET_URL}?list-type=2`);
+                const data = await response.text();
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(data, "text/xml");
+                const contents = xmlDoc.getElementsByTagName("Contents");
+
+                drawings = Array.from(contents).map(item => {
+                    const key = item.getElementsByTagName("Key")[0].textContent;
+                    return { Key: key };
+                });
+
+                updateDisplay();
+            } catch (error) {
+                console.error('Error loading drawings:', error);
+            }
+        }
+
+        function updateDisplay() {
+            displayContainer.innerHTML = '';
+            drawings.forEach((drawing, index) => {
+                const img = document.createElement('img');
+                img.className = 'drawing';
+                img.src = `${BUCKET_URL}/${drawing.Key}`;
+                positionDrawing(img, index);
+                displayContainer.appendChild(img);
+            });
+        }
+
+        function positionDrawing(element, index) {
+            const radius = 400;
+            const totalDrawings = drawings.length;
+            const angleStep = (2 * Math.PI) / totalDrawings;
+            const currentAngle = angle + (index * angleStep);
+
+            const x = radius * Math.cos(currentAngle) + displayContainer.clientWidth / 2 - 150;
+            const y = radius * Math.sin(currentAngle) + displayContainer.clientHeight / 2 - 150;
+            const z = Math.sin(currentAngle) * 100;
+
+            element.style.transform = `translate(${x}px, ${y}px) translateZ(${z}px)`;
+            element.style.opacity = (z + 100) / 200;
+        }
+
+        function animate() {
+            angle += 0.005;
+            const elements = document.getElementsByClassName('drawing');
+            Array.from(elements).forEach((element, index) => {
+                positionDrawing(element, index);
+            });
+            requestAnimationFrame(animate);
+        }
+
+        // Initialize display page
+        if (window.location.hash === '#display') {
+            document.getElementById('drawingPage').style.display = 'none';
+            document.getElementById('displayPage').style.display = 'block';
+            loadDrawings();
+            setInterval(loadDrawings, 10000); // Refresh every 10 seconds
+            animate();
+        }
+    </script>
+</body>
+</html>
