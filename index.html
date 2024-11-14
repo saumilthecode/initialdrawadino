@@ -122,7 +122,7 @@
         }
 
         async function submitDrawing() {
-    const socket = new WebSocket('ws://152.42.238.68:8080'); // Replace with your Droplet's IP and port
+    const socket = new WebSocket('wss://152.42.238.68:8080'); // Replace with your Droplet's IP and port
 
     socket.onopen = async () => {
         // Convert the canvas drawing to Base64
