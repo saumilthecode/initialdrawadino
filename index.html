@@ -122,24 +122,30 @@
         }
 
         async function submitDrawing() {
-            const fileName = `dino_${Date.now()}.png`;
-            const imageBlob = await new Promise(resolve => canvas.toBlob(resolve));
+    const socket = new WebSocket('ws://152.42.238.68:8080'); // Replace with your Droplet's IP and port
 
-            try {
-                await fetch(`${BUCKET_URL}/${fileName}`, {
-                    method: 'PUT',
-                    body: imageBlob,
-                    headers: {
-                        'Content-Type': 'image/png'
-                    }
-                });
-                alert('Drawing submitted successfully!');
-                clearCanvas();
-            } catch (error) {
-                console.error('Error uploading:', error);
-                alert('Failed to upload drawing');
-            }
-        }
+    socket.onopen = async () => {
+        // Convert the canvas drawing to Base64
+        const imageBlob = await new Promise(resolve => canvas.toBlob(resolve));
+        const reader = new FileReader();
+
+        reader.onloadend = () => {
+            const base64data = reader.result.split(',')[1]; // Get Base64 data without header
+            const message = JSON.stringify({ image: base64data });
+
+            // Send the drawing data to the WebSocket server
+            socket.send(message);
+            alert('Drawing submitted successfully!');
+            clearCanvas();
+        };
+
+        reader.readAsDataURL(imageBlob);
+    };
+
+    socket.onerror = () => {
+        alert('Failed to connect to WebSocket server');
+    };
+}
 
         // Display page functionality
         let drawings = [];
